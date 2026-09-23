@@ -1,0 +1,9 @@
+:PROPERTIES:
+:ID:       11111111-1111-1111-1111-111111111111
+:END:
+#+title: emacs config
+#+filetags: :gpt:
+
+* Emacs configuration
+
+Notes about my Emacs setup, Lisp, and keybindings.

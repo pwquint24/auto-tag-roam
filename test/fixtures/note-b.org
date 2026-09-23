@@ -1,0 +1,8 @@
+:PROPERTIES:
+:ID:       22222222-2222-2222-2222-222222222222
+:END:
+#+title: python tips
+
+* Python tips
+
+Notes about Python, coding, and virtualenvs.

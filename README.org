@@ -1,0 +1,251 @@
+#+title: auto-tag
+#+subtitle: Auto-tag org-roam notes with a local LLM (gptel + Ollama)
+
+=auto-tag= is a small pipeline of Emacs Lisp libraries that read a directory
+of org-roam notes, ask a local model (via [[https://github.com/karthink/gptel][gptel]] and [[https://ollama.com/][Ollama]]) to suggest
+tags, consolidate those suggestions into a small controlled vocabulary, and
+then write the final tags back into the notes using org-roam's own editing
+functions.
+
+The pipeline runs in three explicit phases so each step can be inspected and
+re-run independently:
+
+1. *Suggest* -- ask the model for candidate tags for every note.
+2. *Consolidate* -- collapse all candidates into a vocabulary of roughly
+   =auto-tag-percentage= of the file count, and assign each note a subset.
+3. *Apply* -- merge the assigned tags into each note's =#+filetags:= keyword
+   using =org-roam-tag-add=.
+
+* * *
+
+* Requirements
+
+- Emacs 27.1 or newer (uses the native =json-serialize= / =json-parse-*=
+  functions). Tested on Emacs 31.1.
+- [[https://github.com/karthink/gptel][gptel]] with its Ollama backend (=gptel-ollama=).
+- [[https://github.com/org-roam/org-roam][org-roam]].
+- A local [[https://ollama.com/][Ollama]] server with a model available (developed against
+  =qwen2.5:latest=).
+- =curl= on =PATH= (used by gptel).
+
+* Installation
+
+Put the =auto-tag= directory on your =load-path= and require the entry point
+you want.  For example:
+
+#+begin_src emacs-lisp
+  (add-to-list 'load-path "~/path/to/auto-tag")
+  (require 'auto-tag)   ; pulls in all three phases
+#+end_src
+
+If you use =use-package=:
+
+#+begin_src emacs-lisp
+  (use-package auto-tag
+    :load-path "~/path/to/auto-tag"
+    :commands (auto-tag-run auto-tag-suggest auto-tag-consolidate auto-tag-apply))
+#+end_src
+
+The =auto-tag-core= library will register a default Ollama backend
+(=gptel-make-ollama= at =localhost:11434=) if one is not already known to
+gptel.  If you already have gptel configured with an Ollama backend, it will
+use that.
+
+* Quick start
+
+Run the whole pipeline on a directory of notes:
+
+#+begin_src emacs-lisp
+  (auto-tag-run "/path/to/org-roam/notes")
+#+end_src
+
+Or interactively: =M-x auto-tag-run= and enter the directory.
+
+To preview what Phase 3 would change without touching files, call it with a
+prefix argument (=C-u M-x auto-tag-run=), or pass =t= as the second argument:
+
+#+begin_src emacs-lisp
+  (auto-tag-run "/path/to/org-roam/notes" t)   ; dry-run
+#+end_src
+
+* The three phases
+
+Each phase is an independent command that takes the notes directory as its
+argument.
+
+** Phase 1 -- =auto-tag-suggest=
+
+#+begin_src emacs-lisp
+  (auto-tag-suggest "/path/to/org-roam/notes")
+#+end_src
+
+For every =.org= file in the directory, it sends the note's title and body to
+the model and asks for a JSON array of candidate tags.  The results are
+written to =auto-tag-suggestions.json= (see [[Data files]]).
+
+** Phase 2 -- =auto-tag-consolidate=
+
+#+begin_src emacs-lisp
+  (auto-tag-consolidate "/path/to/org-roam/notes")
+#+end_src
+
+Reads =auto-tag-suggestions.json= and makes a single request asking the model
+to build a controlled vocabulary of exactly
+
+#+begin_src emacs-lisp
+  (max 1 (ceiling (* auto-tag-percentage file-count)))
+#+end_src
+
+tags, then assign each note a subset of that vocabulary.  Results are written
+to =auto-tag-final.json=.
+
+** Phase 3 -- =auto-tag-apply=
+
+#+begin_src emacs-lisp
+  (auto-tag-apply "/path/to/org-roam/notes")            ; write tags
+  (auto-tag-apply "/path/to/org-roam/notes" t)          ; dry-run
+#+end_src
+
+Reads =auto-tag-final.json= and, for each note, calls =org-roam-tag-add= to
+merge the assigned tags into the file-level =#+filetags:= keyword.  This uses
+org-roam's editing API exclusively, so existing tags are preserved (the
+operation is a union, not a replacement).
+
+* Entry points
+
+| Function                  | Signature                                     | Description                            |
+|---------------------------+-----------------------------------------------+----------------------------------------|
+| =auto-tag-suggest=        | =(directory)=                                 | Phase 1: per-note tag suggestions.     |
+| =auto-tag-suggest-files=  | =(files)=                                     | Phase 1 for an explicit list of files. |
+| =auto-tag-consolidate=    | =(directory)=                                 | Phase 2: vocabulary + assignments.     |
+| =auto-tag-apply=          | =(directory &optional dry-run only-untagged)= | Phase 3: write tags via org-roam.      |
+| =auto-tag-apply-files=    | =(files &optional dry-run only-untagged)=     | Phase 3 for an explicit list of files. |
+| =auto-tag-run=            | =(directory &optional dry-run only-untagged)= | Run all three phases in sequence.      |
+| =auto-tag-run-files=      | =(files &optional dry-run only-untagged)=     | Run all three phases on a file list.   |
+
+The directory-based commands are interactive and prompt for the directory;
+=auto-tag-apply= and =auto-tag-run= treat a prefix argument as =dry-run=.
+
+The =-files= variants are programmatic (not interactive) and take a list of
+absolute file paths that must all live in one directory:
+
+#+begin_src emacs-lisp
+  (auto-tag-apply-files
+   '("/path/to/notes/a.org" "/path/to/notes/b.org"))
+#+end_src
+
+When =only-untagged= is non-nil, the apply/run commands skip files that
+already have a =#+filetags:= keyword, tagging only the currently untagged
+ones:
+
+#+begin_src emacs-lisp
+  (auto-tag-apply "/path/to/notes" nil t)   ; only tag untagged files
+#+end_src
+
+* Configuration
+
+All options are =defcustom=s in the =auto-tag= customization group
+(=M-x customize-group RET auto-tag RET=).
+
+| Variable                          | Default                      | Meaning                                        |
+|-----------------------------------+------------------------------+------------------------------------------------|
+| =auto-tag-backend-name=           | ="Ollama"=                   | gptel backend to use.                          |
+| =auto-tag-model=                  | =nil=                        | Model; =nil= means first model of the backend. |
+| =auto-tag-percentage=             | =0.20=                       | Fraction of file count for the tag vocabulary. |
+| =auto-tag-max-body-chars=         | =8000=                       | Max note-body characters sent to the model.    |
+| =auto-tag-max-tags-per-note=      | =6=                          | Max tags requested per note in Phase 1.        |
+| =auto-tag-temperature=            | =0.2=                        | LLM temperature for tagging requests.          |
+| =auto-tag-request-timeout=        | =600=                        | Max seconds to wait for a gptel response.      |
+| =auto-tag-suggestions-filename=   | ="auto-tag-suggestions.json"= | Phase 1 output filename.                       |
+| =auto-tag-final-filename=         | ="auto-tag-final.json"=      | Phase 2 output filename.                       |
+
+* Data files
+
+Both JSON files are written to the *parent* of the directory being scanned,
+so the notes directory itself stays clean.
+
+** =auto-tag-suggestions.json= (Phase 1 output)
+
+#+begin_src javascript
+  {
+    "directory": "/path/to/notes",
+    "file-count": 36,
+    "files": [
+      { "file": "/path/to/notes/note.org", "title": "note", "tags": ["a", "b"] }
+    ]
+  }
+#+end_src
+
+** =auto-tag-final.json= (Phase 2 output)
+
+#+begin_src javascript
+  {
+    "directory": "/path/to/notes",
+    "target-count": 8,
+    "vocabulary": ["a", "b", "c"],
+    "assignments": [
+      { "file": "/path/to/notes/note.org", "tags": ["a", "b"] }
+    ]
+  }
+#+end_src
+
+* How it works
+
+- =gptel-request= is asynchronous, so =auto-tag-core= wraps it in a callback
+  that sets a result, then blocks with an =accept-process-output= loop until
+  the response arrives.  The Ollama backend is selected by binding
+  =gptel-backend= and =gptel-model=, and the =:schema= keyword is used to force
+  JSON output (=format= in the Ollama API).
+- Tag writing goes through =org-roam-tag-add=, which takes a *list* of tag
+  strings and operates on the node at point.  At the top of a file (outline
+  level 0) it updates the =#+filetags:= keyword, creating it if necessary and
+  merging with any existing tags.
+- Tags are normalized to lowercase, space-free (spaces become =_=) org tags
+  before being written.
+
+* Limitations
+
+- Files are treated as one note each; multi-note files are not split or
+  specially handled.
+- Phase 1 makes one request per note, so a large directory takes time
+  proportional to the number of notes.
+- The consolidated vocabulary is intentionally small (20% of the file count by
+  default); raise =auto-tag-percentage= if you want a finer-grained taxonomy.
+
+* Testing
+
+ERT tests live in =test/=.
+
+** Unit tests (fast, no network)
+
+These fake the AI responses by overriding =auto-tag--gptel-json= with
+=cl-letf=, so they never contact Ollama:
+
+#+begin_src sh
+  cd /path/to/auto-tag
+  emacs --batch -Q -l test/run-tests.el
+#+end_src
+
+** Ollama integration test (slow, single file)
+
+A separate test makes exactly one real request to the local model for a single
+fixture file, so it stays quick enough to run by hand:
+
+#+begin_src sh
+  cd /path/to/auto-tag
+  emacs --batch -Q -l test/run-ollama-test.el
+#+end_src
+
+It skips itself if Ollama is unreachable or =curl= is missing.  To change the
+backend or model, edit the =defvar=s at the top of
+=test/auto-tag-ollama-test.el= (=auto-tag-ollama-test-backend= and
+=auto-tag-ollama-test-model=), or bind them before running:
+
+#+begin_src emacs-lisp
+  (setq auto-tag-ollama-test-model 'llama3.1:8b)
+#+end_src
+
+* See also
+
+- =AGENTS.md= -- implementation notes and gotchas for working on this package.
+- =smoke-test.el= -- a minimal gptel+Ollama connectivity check.
