@@ -33,6 +33,28 @@ re-run independently:
 
 * Installation
 
+The package consists of the =.el= files in the *top directory* of the
+repository (=auto-tag-core.el=, =auto-tag-suggest.el=,
+=auto-tag-consolidate.el=, =auto-tag-apply.el=, and =auto-tag.el=).  The
+=test/= directory and =smoke-test.el= are development-only and are *not*
+needed to install or use =auto-tag=.
+
+** Manual / local install
+
+If you would rather not use a package manager, just download the top-level
+=.el= files (you do not need anything from =test/=) into a directory on your
+=load-path= and require the package:
+
+#+begin_src emacs-lisp
+  ;; Put the auto-tag .el files somewhere, e.g. ~/.emacs.d/lisp/auto-tag/
+  (add-to-list 'load-path "~/.emacs.d/lisp/auto-tag")
+
+  (require 'auto-tag)   ; pulls in all three phases
+#+end_src
+
+Only =auto-tag-core.el= plus the phase files you actually call are required at
+runtime; =auto-tag.el= is the convenience entry point that pulls them all in.
+
 ** Doom Emacs
 
 Add the following to your =packages.el= (=~/.config/doom/packages.el= or
@@ -52,7 +74,8 @@ Then run =doom sync=, and require the package in your =config.el=:
 
 ** Vanilla Emacs
 
-With [[https://github.com/radian-software/straight.el][straight.el]], install =auto-tag= from GitHub and require it:
+With [[https://github.com/radian-software/straight.el][straight.el]], install =auto-tag= from GitHub and require it (straight
+loads only the top-level =.el= files, so the =test/= directory is ignored):
 
 #+begin_src emacs-lisp
   (straight-use-package
