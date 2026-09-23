@@ -62,8 +62,12 @@ Add the following to your =packages.el= (=~/.config/doom/packages.el= or
 
 #+begin_src emacs-lisp
   (package! auto-tag
-    :recipe (:host github :repo "pwquint24/auto-tag-roam"))
+    :recipe (:host github :repo "pwquint24/auto-tag-roam"
+             :files ("auto-tag*.el")))
 #+end_src
+
+The =:files= clause restricts the recipe to the top-level =auto-tag*.el=
+files, so the =test/= directory is not downloaded.
 
 Then run =doom sync=, and require the package in your =config.el=:
 
@@ -74,12 +78,14 @@ Then run =doom sync=, and require the package in your =config.el=:
 
 ** Vanilla Emacs
 
-With [[https://github.com/radian-software/straight.el][straight.el]], install =auto-tag= from GitHub and require it (straight
-loads only the top-level =.el= files, so the =test/= directory is ignored):
+With [[https://github.com/radian-software/straight.el][straight.el]], install =auto-tag= from GitHub and require it.  The
+=:files= clause keeps the download to the top-level =auto-tag*.el= files, so
+the =test/= directory is ignored:
 
 #+begin_src emacs-lisp
   (straight-use-package
-   '(auto-tag :type git :host github :repo "pwquint24/auto-tag-roam"))
+   '(auto-tag :type git :host github :repo "pwquint24/auto-tag-roam"
+              :files ("auto-tag*.el")))
 
   (require 'auto-tag)   ; pulls in all three phases
 #+end_src
@@ -88,7 +94,8 @@ Or with =use-package= + =straight=:
 
 #+begin_src emacs-lisp
   (use-package auto-tag
-    :straight (:type git :host github :repo "pwquint24/auto-tag-roam")
+    :straight (:type git :host github :repo "pwquint24/auto-tag-roam"
+               :files ("auto-tag*.el"))
     :commands (auto-tag-run auto-tag-suggest auto-tag-consolidate auto-tag-apply))
 #+end_src
 
