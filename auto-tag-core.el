@@ -14,6 +14,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'json)
+(require 'project)
 (require 'gptel)
 (require 'gptel-ollama)
 
@@ -68,6 +69,15 @@ When nil, the first model of `auto-tag-backend-name' is used."
 (defcustom auto-tag-final-filename "auto-tag-final.json"
   "Filename for Phase 2 final vocabulary and assignments."
   :type 'string
+  :group 'auto-tag)
+
+(defcustom auto-tag-data-directory
+  (expand-file-name "auto-tag" temporary-file-directory)
+  "Directory where intermediate JSON data files are written.
+
+The files are temporary pipeline artifacts, so this defaults to a
+subdirectory of `temporary-file-directory'."
+  :type 'directory
   :group 'auto-tag)
 
 
@@ -187,7 +197,12 @@ alist."
    (t (error "auto-tag: cannot serialize value %S" obj))))
 
 (defun auto-tag--write-json (file obj)
-  "Write OBJ to FILE as pretty-printed JSON."
+  "Write OBJ to FILE as pretty-printed JSON.
+
+Creates FILE's parent directory if needed."
+  (let ((dir (file-name-directory file)))
+    (unless (file-directory-p dir)
+      (make-directory dir t)))
   (with-temp-buffer
     (insert (json-serialize (auto-tag--json-normalize obj)
                             :null-object nil :false-object :json-false))
@@ -271,6 +286,10 @@ directory so the data files can be located next to that directory."
     (insert-file-contents file)
     (and (auto-tag--current-tags) t)))
 
+(defun auto-tag--filter-untagged (notes)
+  "Return NOTES, dropping entries whose file already has tags."
+  (seq-filter (lambda (info) (null (plist-get info :tags))) notes))
+
 
 ;;; Tag normalization
 
@@ -296,12 +315,28 @@ Returns nil when TAG is not a string."
 ;;; Data file locations
 
 (defun auto-tag--data-file (directory filename)
-  "Return the data file path for DIRECTORY and FILENAME.
+  "Return the temp data file path for DIRECTORY and FILENAME.
 
-Data files are written to the parent of DIRECTORY so the org
-directory itself stays clean."
-  (let ((dir (directory-file-name (expand-file-name directory))))
-    (expand-file-name filename (file-name-directory dir))))
+Intermediate JSON files are written to `auto-tag-data-directory'.
+A hash of DIRECTORY is included in the name so different
+directories do not collide."
+  (let ((key (md5 (file-name-as-directory (expand-file-name directory)))))
+    (expand-file-name (concat key "-" filename) auto-tag-data-directory)))
+
+(defun auto-tag--ensure-data-directory ()
+  "Ensure `auto-tag-data-directory' exists."
+  (unless (file-directory-p auto-tag-data-directory)
+    (make-directory auto-tag-data-directory t)))
+
+;;; Project directory
+
+(defun auto-tag--project-directory ()
+  "Return the current project root, or `default-directory'.
+
+Uses `project-current' to find the project root."
+  (or (when-let* ((proj (project-current)))
+        (project-root proj))
+      (expand-file-name default-directory)))
 
 (provide 'auto-tag-core)
 ;;; auto-tag-core.el ends here

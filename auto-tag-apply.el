@@ -5,6 +5,10 @@
 ;; Phase 3 of the auto-tag pipeline.  Reads `auto-tag-final.json' and
 ;; writes the final tags into each note using only org-roam's editing
 ;; functions (`org-roam-tag-add'), which merge with any existing tags.
+;;
+;; By default only files that do not yet have file-level tags are
+;; tagged, so re-running the pipeline does not modify already-tagged
+;; notes.
 
 ;;; Code:
 
@@ -22,19 +26,19 @@
           (save-buffer))
       (kill-buffer buf))))
 
-(defun auto-tag--apply-assignments (assignments &optional dry-run only-untagged)
+(defun auto-tag--apply-assignments (assignments &optional dry-run include-tagged)
   "Apply ASSIGNMENTS (list of plists) to their files.
 
-When DRY-RUN is non-nil, only print what would change.  When
-ONLY-UNTAGGED is non-nil, skip files that already have file-level
-tags."
+When INCLUDE-TAGGED is nil (the default), skip files that already
+have file-level tags.  When DRY-RUN is non-nil, only print what
+would change."
   (dolist (a assignments)
     (let ((file (plist-get a :file))
           (tags (plist-get a :tags)))
       (cond
        ((not (file-exists-p file))
         (message "auto-tag: skipping missing file %s" file))
-       ((and only-untagged (auto-tag--file-has-tags-p file))
+       ((and (not include-tagged) (auto-tag--file-has-tags-p file))
         (message "auto-tag: skipping already-tagged file %s"
                  (file-name-nondirectory file)))
        (dry-run
@@ -47,11 +51,12 @@ tags."
            (length assignments) (if dry-run " (dry-run)" "")))
 
 ;;;###autoload
-(defun auto-tag-apply (directory &optional dry-run only-untagged)
+(defun auto-tag-apply (directory &optional dry-run include-tagged)
   "Apply final tags from `auto-tag-final.json' to notes in DIRECTORY.
 
-When DRY-RUN is non-nil, only print what would change.  When
-ONLY-UNTAGGED is non-nil, skip files that already have file-level tags."
+By default only untagged files are tagged; pass INCLUDE-TAGGED
+non-nil to also tag files that already have file-level tags.  When
+DRY-RUN is non-nil, only print what would change."
   (interactive
    (list (read-directory-name "Directory: ")
          current-prefix-arg
@@ -59,14 +64,15 @@ ONLY-UNTAGGED is non-nil, skip files that already have file-level tags."
   (let* ((final-file (auto-tag--data-file directory auto-tag-final-filename))
          (final (auto-tag--read-json final-file)))
     (auto-tag--apply-assignments (plist-get final :assignments)
-                                 dry-run only-untagged)))
+                                 dry-run include-tagged)))
 
-(defun auto-tag-apply-files (files &optional dry-run only-untagged)
+(defun auto-tag-apply-files (files &optional dry-run include-tagged)
   "Apply final tags to FILES (a list of file paths).
 
 Only assignments whose file is in FILES are applied.  All files must
 be in one directory so `auto-tag-final.json' can be located next to
-it.  When ONLY-UNTAGGED is non-nil, skip files that already have tags."
+it.  By default only untagged files are tagged; pass INCLUDE-TAGGED
+non-nil to also tag already-tagged files."
   (let* ((directory (auto-tag--files-directory files))
          (final-file (auto-tag--data-file directory auto-tag-final-filename))
          (final (auto-tag--read-json final-file))
@@ -74,7 +80,17 @@ it.  When ONLY-UNTAGGED is non-nil, skip files that already have tags."
          (assignments (seq-filter
                        (lambda (a) (member (plist-get a :file) want))
                        (plist-get final :assignments))))
-    (auto-tag--apply-assignments assignments dry-run only-untagged)))
+    (auto-tag--apply-assignments assignments dry-run include-tagged)))
+
+;;;###autoload
+(defun auto-tag-apply-project (&optional dry-run include-tagged)
+  "Apply final tags to the current project directory.
+
+By default only untagged files are tagged; pass INCLUDE-TAGGED
+non-nil to also tag already-tagged files.  When DRY-RUN is non-nil,
+only print what would change."
+  (interactive (list current-prefix-arg nil))
+  (auto-tag-apply (auto-tag--project-directory) dry-run include-tagged))
 
 (provide 'auto-tag-apply)
 ;;; auto-tag-apply.el ends here

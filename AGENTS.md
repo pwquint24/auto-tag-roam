@@ -23,12 +23,18 @@ auto-tag org-roam notes.
 
 The pipeline is three phases:
 
-1. `auto-tag-suggest DIR` → `auto-tag-suggestions.json` (parent of `DIR`).
+1. `auto-tag-suggest DIR` → `auto-tag-suggestions.json`.
 2. `auto-tag-consolidate DIR` → `auto-tag-final.json`.
 3. `auto-tag-apply DIR` (or `DIR` + prefix arg for dry-run) → writes tags.
 
-Data files live in the **parent** of the directory being scanned
-(`auto-tag--data-file`), so the org directory stays clean.
+Intermediate JSON data files live in `auto-tag-data-directory` (a
+subdirectory of `temporary-file-directory` by default); `auto-tag--data-file`
+includes an md5 hash of the scanned directory in the filename so different
+directories do not collide.
+
+Each phase also has a `-project` variant (e.g. `auto-tag-run-project`) that
+operates on the current project root (`project-current`, falling back to
+`default-directory`) instead of prompting for a directory.
 
 ## Environment facts
 
@@ -145,8 +151,9 @@ The working convention in `auto-tag-core.el`:
 
 ## Decisions made with the user
 
-- Operate on the test directory first; the directory is a **parameter** to
-  every function (default test dir is this repo's `org/`).
+- Operate on the test directory first (this repo's `org/`). The directory is
+  a parameter to the directory-based functions; the `-project` variants
+  operate on the current project root instead.
 - Tag count target = **20%** of file count (36 files → 8 tags).
 - Existing tags are **merged** (via `org-roam-tag-add`), not replaced.
 - Assume **no multi-note files** for now (do not skip/filter; process all
@@ -154,6 +161,8 @@ The working convention in `auto-tag-core.el`:
   source blocks also contain `#+title:` lines.
 - Use Emacs Lisp functions only to modify files (org-roam API).
 - Added **list-of-files** entry points (`auto-tag-suggest-files`,
-  `auto-tag-apply-files`, `auto-tag-run-files`) and an **only-untagged**
-  option on apply/run. List-of-files functions require all files in one
-  directory (so the JSON data files can be located next to it).
+  `auto-tag-apply-files`, `auto-tag-run-files`). List-of-files functions
+  require all files in one directory, which is used to derive the data-file
+  hash and resolve basenames during consolidation.
+- Default behavior is **only-untagged**: suggest/apply/run skip files that
+  already have a `#+filetags:` keyword unless `include-tagged` is non-nil.

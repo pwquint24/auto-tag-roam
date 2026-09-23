@@ -1,7 +1,10 @@
 #+title: auto-tag
 #+subtitle: Auto-tag org-roam notes with a local LLM (gptel + Ollama)
+#+author: ECA (Editor Code Assistant)
 
-=auto-tag= is a small pipeline of Emacs Lisp libraries that read a directory
+=auto-tag= is coded by ECA, an AI coding assistant and DeepSeek.
+It is a small pipeline of
+Emacs Lisp libraries that read a directory
 of org-roam notes, ask a local model (via [[https://github.com/karthink/gptel][gptel]] and [[https://ollama.com/][Ollama]]) to suggest
 tags, consolidate those suggestions into a small controlled vocabulary, and
 then write the final tags back into the notes using org-roam's own editing
@@ -30,19 +33,39 @@ re-run independently:
 
 * Installation
 
-Put the =auto-tag= directory on your =load-path= and require the entry point
-you want.  For example:
+** Doom Emacs
+
+Add the following to your =packages.el= (=~/.config/doom/packages.el= or
+=~/.doom.d/packages.el=) to install =auto-tag= from GitHub:
 
 #+begin_src emacs-lisp
-  (add-to-list 'load-path "~/path/to/auto-tag")
+  (package! auto-tag
+    :recipe (:host github :repo "pwquint24/auto-tag-roam"))
+#+end_src
+
+Then run =doom sync=, and require the package in your =config.el=:
+
+#+begin_src emacs-lisp
+  (use-package! auto-tag
+    :commands (auto-tag-run auto-tag-suggest auto-tag-consolidate auto-tag-apply))
+#+end_src
+
+** Vanilla Emacs
+
+With [[https://github.com/radian-software/straight.el][straight.el]], install =auto-tag= from GitHub and require it:
+
+#+begin_src emacs-lisp
+  (straight-use-package
+   '(auto-tag :type git :host github :repo "pwquint24/auto-tag-roam"))
+
   (require 'auto-tag)   ; pulls in all three phases
 #+end_src
 
-If you use =use-package=:
+Or with =use-package= + =straight=:
 
 #+begin_src emacs-lisp
   (use-package auto-tag
-    :load-path "~/path/to/auto-tag"
+    :straight (:type git :host github :repo "pwquint24/auto-tag-roam")
     :commands (auto-tag-run auto-tag-suggest auto-tag-consolidate auto-tag-apply))
 #+end_src
 
@@ -79,9 +102,11 @@ argument.
   (auto-tag-suggest "/path/to/org-roam/notes")
 #+end_src
 
-For every =.org= file in the directory, it sends the note's title and body to
-the model and asks for a JSON array of candidate tags.  The results are
-written to =auto-tag-suggestions.json= (see [[Data files]]).
+By default it processes only files that do not yet have a =#+filetags:=
+keyword; pass =t= as a second argument to include already-tagged files.  For
+each processed note it sends the title and body to the model and asks for a
+JSON array of candidate tags.  The results are written to
+=auto-tag-suggestions.json= (see [[Data files]]).
 
 ** Phase 2 -- =auto-tag-consolidate=
 
@@ -107,24 +132,35 @@ to =auto-tag-final.json=.
 #+end_src
 
 Reads =auto-tag-final.json= and, for each note, calls =org-roam-tag-add= to
-merge the assigned tags into the file-level =#+filetags:= keyword.  This uses
+merge the assigned tags into the file-level =#+filetags:= keyword.  By
+default it skips files that already have tags, so re-running the pipeline
+does not modify already-tagged notes.  Pass =t= as the third argument
+(=include-tagged=) to also tag files that already have tags.  The write uses
 org-roam's editing API exclusively, so existing tags are preserved (the
 operation is a union, not a replacement).
 
 * Entry points
 
-| Function                  | Signature                                     | Description                            |
-|---------------------------+-----------------------------------------------+----------------------------------------|
-| =auto-tag-suggest=        | =(directory)=                                 | Phase 1: per-note tag suggestions.     |
-| =auto-tag-suggest-files=  | =(files)=                                     | Phase 1 for an explicit list of files. |
-| =auto-tag-consolidate=    | =(directory)=                                 | Phase 2: vocabulary + assignments.     |
-| =auto-tag-apply=          | =(directory &optional dry-run only-untagged)= | Phase 3: write tags via org-roam.      |
-| =auto-tag-apply-files=    | =(files &optional dry-run only-untagged)=     | Phase 3 for an explicit list of files. |
-| =auto-tag-run=            | =(directory &optional dry-run only-untagged)= | Run all three phases in sequence.      |
-| =auto-tag-run-files=      | =(files &optional dry-run only-untagged)=     | Run all three phases on a file list.   |
+| Function                    | Signature                                      | Description                            |
+|-----------------------------+------------------------------------------------+----------------------------------------|
+| =auto-tag-suggest=          | =(directory &optional include-tagged)=         | Phase 1: per-note tag suggestions.     |
+| =auto-tag-suggest-files=    | =(files &optional include-tagged)=             | Phase 1 for an explicit list of files. |
+| =auto-tag-suggest-project=  | =(&optional include-tagged)=                   | Phase 1 for the current project.       |
+| =auto-tag-consolidate=      | =(directory)=                                  | Phase 2: vocabulary + assignments.     |
+| =auto-tag-consolidate-project= | =()=                                        | Phase 2 for the current project.       |
+| =auto-tag-apply=            | =(directory &optional dry-run include-tagged)= | Phase 3: write tags via org-roam.      |
+| =auto-tag-apply-files=      | =(files &optional dry-run include-tagged)=     | Phase 3 for an explicit list of files. |
+| =auto-tag-apply-project=    | =(&optional dry-run include-tagged)=           | Phase 3 for the current project.       |
+| =auto-tag-run=              | =(directory &optional dry-run include-tagged)= | Run all three phases in sequence.      |
+| =auto-tag-run-files=        | =(files &optional dry-run include-tagged)=     | Run all three phases on a file list.   |
+| =auto-tag-run-project=      | =(&optional dry-run include-tagged)=           | Run all three phases on the project.   |
 
 The directory-based commands are interactive and prompt for the directory;
 =auto-tag-apply= and =auto-tag-run= treat a prefix argument as =dry-run=.
+
+The =-project= variants use the current project root instead of prompting:
+they call =project-current= and fall back to =default-directory= when not in
+a project.
 
 The =-files= variants are programmatic (not interactive) and take a list of
 absolute file paths that must all live in one directory:
@@ -134,12 +170,12 @@ absolute file paths that must all live in one directory:
    '("/path/to/notes/a.org" "/path/to/notes/b.org"))
 #+end_src
 
-When =only-untagged= is non-nil, the apply/run commands skip files that
-already have a =#+filetags:= keyword, tagging only the currently untagged
-ones:
+*By default only untagged files are processed* (suggested and tagged).  The
+=include-tagged= argument defaults to =nil=; pass it non-nil to process all
+files, including those that already have a =#+filetags:= keyword:
 
 #+begin_src emacs-lisp
-  (auto-tag-apply "/path/to/notes" nil t)   ; only tag untagged files
+  (auto-tag-apply "/path/to/notes" nil t)   ; also tag already-tagged files
 #+end_src
 
 * Configuration
@@ -158,11 +194,14 @@ All options are =defcustom=s in the =auto-tag= customization group
 | =auto-tag-request-timeout=        | =600=                        | Max seconds to wait for a gptel response.      |
 | =auto-tag-suggestions-filename=   | ="auto-tag-suggestions.json"= | Phase 1 output filename.                       |
 | =auto-tag-final-filename=         | ="auto-tag-final.json"=      | Phase 2 output filename.                       |
+| =auto-tag-data-directory=         | temp =auto-tag/= subdir     | Where intermediate JSON files are written.      |
 
 * Data files
 
-Both JSON files are written to the *parent* of the directory being scanned,
-so the notes directory itself stays clean.
+Both JSON files are temporary pipeline artifacts and are written to
+=auto-tag-data-directory= (a subdirectory of =temporary-file-directory= by
+default).  Each scanned directory gets its own filenames via a hash, so
+different directories do not collide.
 
 ** =auto-tag-suggestions.json= (Phase 1 output)
 

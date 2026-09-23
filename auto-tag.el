@@ -7,6 +7,8 @@
 ;;   1. auto-tag-suggest     - per-note tag suggestions
 ;;   2. auto-tag-consolidate - controlled vocabulary + assignments
 ;;   3. auto-tag-apply       - write tags via org-roam
+;;
+;; By default only files that do not yet have tags are processed.
 
 ;;; Code:
 
@@ -15,29 +17,39 @@
 (require 'auto-tag-apply)
 
 ;;;###autoload
-(defun auto-tag-run (directory &optional dry-run only-untagged)
+(defun auto-tag-run (directory &optional dry-run include-tagged)
   "Run the full auto-tag pipeline on DIRECTORY.
 
-When DRY-RUN is non-nil, Phase 3 only prints what would change.
-When ONLY-UNTAGGED is non-nil, Phase 3 only tags files that do not
-already have file-level tags."
+By default only untagged files are suggested and tagged; pass
+INCLUDE-TAGGED non-nil to process all files.  When DRY-RUN is
+non-nil, Phase 3 only prints what would change."
   (interactive
    (list (read-directory-name "Directory: ")
          current-prefix-arg
          nil))
-  (auto-tag-suggest directory)
-  (auto-tag-consolidate directory)
-  (auto-tag-apply directory dry-run only-untagged))
+  (when (auto-tag-suggest directory include-tagged)
+    (auto-tag-consolidate directory)
+    (auto-tag-apply directory dry-run include-tagged)))
 
-(defun auto-tag-run-files (files &optional dry-run only-untagged)
+(defun auto-tag-run-files (files &optional dry-run include-tagged)
   "Run the full auto-tag pipeline on FILES (a list of file paths).
 
-All files must be in one directory.  See `auto-tag-run' for the
-meaning of DRY-RUN and ONLY-UNTAGGED."
+All files must be in one directory.  By default only untagged files
+are processed; pass INCLUDE-TAGGED non-nil to process all."
   (let ((directory (auto-tag--files-directory files)))
-    (auto-tag-suggest-files files)
-    (auto-tag-consolidate directory)
-    (auto-tag-apply directory dry-run only-untagged)))
+    (when (auto-tag-suggest-files files include-tagged)
+      (auto-tag-consolidate directory)
+      (auto-tag-apply directory dry-run include-tagged))))
+
+;;;###autoload
+(defun auto-tag-run-project (&optional dry-run include-tagged)
+  "Run the full auto-tag pipeline on the current project directory.
+
+By default only untagged files are processed; pass INCLUDE-TAGGED
+non-nil to process all.  When DRY-RUN is non-nil, Phase 3 only
+prints what would change."
+  (interactive (list current-prefix-arg nil))
+  (auto-tag-run (auto-tag--project-directory) dry-run include-tagged))
 
 (provide 'auto-tag)
 ;;; auto-tag.el ends here

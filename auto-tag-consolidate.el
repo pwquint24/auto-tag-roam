@@ -40,8 +40,8 @@
 (defun auto-tag-consolidate (directory)
   "Consolidate Phase 1 suggestions for DIRECTORY into a vocabulary.
 
-Reads `auto-tag-suggestions.json' and writes `auto-tag-final.json',
-both in DIRECTORY's parent."
+Reads `auto-tag-suggestions.json' and writes `auto-tag-final.json'
+in `auto-tag-data-directory'."
   (interactive "DDirectory: ")
   (let* ((sugg-file (auto-tag--data-file directory auto-tag-suggestions-filename))
          (sugg (auto-tag--read-json sugg-file))
@@ -83,6 +83,12 @@ both in DIRECTORY's parent."
       (message "auto-tag: vocabulary (%d): %S" (length vocab) vocab)
       (message "auto-tag: wrote %s" out)
       out)))
+
+;;;###autoload
+(defun auto-tag-consolidate-project ()
+  "Consolidate Phase 1 suggestions for the current project directory."
+  (interactive)
+  (auto-tag-consolidate (auto-tag--project-directory)))
 
 (provide 'auto-tag-consolidate)
 ;;; auto-tag-consolidate.el ends here

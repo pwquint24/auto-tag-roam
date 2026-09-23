@@ -64,8 +64,7 @@ Defaults ROOT and TEST-DIR to the repository root and test dir."
 (defun auto-tag-test-make-temp-notes ()
   "Create a unique temp directory with fixture copies in a `notes' subdir.
 
-Returns the `notes' directory; its parent is unique per test so data
-files (written to the parent) do not collide."
+Returns the `notes' directory; its parent is unique per test."
   (let* ((root (file-name-as-directory (make-temp-file "auto-tag-test-" t)))
          (notes (file-name-as-directory (expand-file-name "notes" root))))
     (make-directory notes)
@@ -77,7 +76,9 @@ files (written to the parent) do not collide."
   (let ((dir (auto-tag-test-make-temp-notes)))
     (unwind-protect
         (funcall fn dir)
-      (delete-directory (file-name-directory (directory-file-name dir)) t))))
+      (delete-directory (file-name-directory (directory-file-name dir)) t)
+      (dolist (f (list auto-tag-suggestions-filename auto-tag-final-filename))
+        (ignore-errors (delete-file (auto-tag--data-file dir f)))))))
 
 (defun auto-tag-test--file-string (file)
   "Return the contents of FILE as a string."

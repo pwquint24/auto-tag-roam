@@ -18,9 +18,8 @@
   (lambda (&rest _) response))
 
 (defun auto-tag-test--data-file (dir filename)
-  "Return the data file path for DIR/FILENAME (mirrors `auto-tag--data-file')."
-  (expand-file-name filename
-                    (file-name-directory (directory-file-name dir))))
+  "Return the data file path for DIR/FILENAME."
+  (auto-tag--data-file dir filename))
 
 
 ;;; Core: file discovery and parsing
@@ -104,13 +103,28 @@
    (lambda (dir)
      (cl-letf (((symbol-function 'auto-tag--gptel-json)
                 (auto-tag-test--fake-gptel '(:tags ("Emacs" "lisp")))))
-       (auto-tag-suggest dir))
+       (auto-tag-suggest dir t))                 ; include already-tagged
      (let* ((out (auto-tag-test--data-file dir auto-tag-suggestions-filename))
             (data (auto-tag--read-json out)))
        (should (file-exists-p out))
        (should (equal 3 (plist-get data :file-count)))
        (dolist (f (plist-get data :files))
          (should (equal '("emacs" "lisp") (plist-get f :tags))))))))
+
+(ert-deftest auto-tag-suggest-default-only-untagged ()
+  (auto-tag-test--with-temp
+   (lambda (dir)
+     (cl-letf (((symbol-function 'auto-tag--gptel-json)
+                (auto-tag-test--fake-gptel '(:tags ("emacs")))))
+       (auto-tag-suggest dir))                   ; default: untagged only
+     (let* ((out (auto-tag-test--data-file dir auto-tag-suggestions-filename))
+            (data (auto-tag--read-json out)))
+       (should (file-exists-p out))
+       ;; Only note-b.org is untagged.
+       (should (equal 1 (plist-get data :file-count)))
+       (should (equal '("note-b.org")
+                      (mapcar (lambda (f) (file-name-nondirectory (plist-get f :file)))
+                              (plist-get data :files))))))))
 
 
 ;;; Phase 2 (consolidate) with a faked model
@@ -174,7 +188,7 @@
                                      :tags '("emacs"))
                                (list :file (expand-file-name "note-b.org" dir)
                                      :tags '("python")))))
-     (auto-tag-apply dir)
+     (auto-tag-apply dir nil t)                  ; include already-tagged
      (with-temp-buffer
        (insert-file-contents (expand-file-name "note-a.org" dir))
        (should (string-match-p ":emacs:gpt:" (buffer-string))))
@@ -185,15 +199,15 @@
 (ert-deftest auto-tag-apply-dry-run-does-not-modify ()
   (auto-tag-test--with-temp
    (lambda (dir)
-     (let ((before (auto-tag-test--file-string (expand-file-name "note-a.org" dir))))
+     (let ((before (auto-tag-test--file-string (expand-file-name "note-b.org" dir))))
        (auto-tag--write-json
         (auto-tag-test--data-file dir auto-tag-final-filename)
         (list :directory dir :target-count 1 :vocabulary '("emacs")
-              :assignments (list (list :file (expand-file-name "note-a.org" dir)
-                                       :tags '("emacs")))))
-       (auto-tag-apply dir t)                     ; dry-run
+              :assignments (list (list :file (expand-file-name "note-b.org" dir)
+                                       :tags '("python")))))
+       (auto-tag-apply dir t)                     ; dry-run (note-b is untagged)
        (should (equal before
-                      (auto-tag-test--file-string (expand-file-name "note-a.org" dir))))))))
+                      (auto-tag-test--file-string (expand-file-name "note-b.org" dir))))))))
 
 
 ;;; List-of-files and only-untagged variants
@@ -216,11 +230,26 @@
                         (expand-file-name "note-b.org" dir))))
        (cl-letf (((symbol-function 'auto-tag--gptel-json)
                   (auto-tag-test--fake-gptel '(:tags ("emacs")))))
-         (auto-tag-suggest-files files))
+         (auto-tag-suggest-files files t))       ; include already-tagged
        (let ((data (auto-tag--read-json
                     (auto-tag-test--data-file dir auto-tag-suggestions-filename))))
          (should (equal 2 (plist-get data :file-count)))
          (should (equal '("note-a.org" "note-b.org")
+                        (mapcar (lambda (f) (file-name-nondirectory (plist-get f :file)))
+                                (plist-get data :files)))))))))
+
+(ert-deftest auto-tag-suggest-files-default-only-untagged ()
+  (auto-tag-test--with-temp
+   (lambda (dir)
+     (let ((files (list (expand-file-name "note-a.org" dir)
+                        (expand-file-name "note-b.org" dir))))
+       (cl-letf (((symbol-function 'auto-tag--gptel-json)
+                  (auto-tag-test--fake-gptel '(:tags ("emacs")))))
+         (auto-tag-suggest-files files))         ; default: untagged only
+       (let ((data (auto-tag--read-json
+                    (auto-tag-test--data-file dir auto-tag-suggestions-filename))))
+         (should (equal 1 (plist-get data :file-count)))
+         (should (equal '("note-b.org")
                         (mapcar (lambda (f) (file-name-nondirectory (plist-get f :file)))
                                 (plist-get data :files)))))))))
 
@@ -238,7 +267,8 @@
                                  (list :file (expand-file-name "note-c.org" dir)
                                        :tags '("sqlite")))))
        (auto-tag-apply-files (list (expand-file-name "note-a.org" dir)
-                                   (expand-file-name "note-b.org" dir)))
+                                   (expand-file-name "note-b.org" dir))
+                             nil t)              ; include already-tagged
        (with-temp-buffer
          (insert-file-contents (expand-file-name "note-a.org" dir))
          (should (string-match-p ":emacs:gpt:" (buffer-string))))
@@ -260,7 +290,7 @@
                                        :tags '("emacs"))
                                  (list :file (expand-file-name "note-b.org" dir)
                                        :tags '("python")))))
-       (auto-tag-apply dir nil t)                 ; only untagged
+       (auto-tag-apply dir)                       ; default: untagged only
        ;; note-a already has :gpt:, so it must be untouched.
        (should (equal note-a-before
                       (auto-tag-test--file-string (expand-file-name "note-a.org" dir))))
@@ -268,6 +298,18 @@
        (with-temp-buffer
          (insert-file-contents (expand-file-name "note-b.org" dir))
          (should (string-match-p ":python:" (buffer-string))))))))
+
+(ert-deftest auto-tag-data-file-lives-in-temp-directory ()
+  (let ((f (auto-tag--data-file "/some/dir" auto-tag-suggestions-filename)))
+    (should (equal (file-name-as-directory auto-tag-data-directory)
+                   (file-name-directory f)))
+    (should (string-match-p "auto-tag-suggestions\\.json\\'" f))))
+
+(ert-deftest auto-tag-project-directory-falls-back-to-default ()
+  (let ((default-directory temporary-file-directory)
+        (project-find-functions nil))
+    (should (equal (expand-file-name default-directory)
+                   (auto-tag--project-directory)))))
 
 (provide 'auto-tag-test)
 ;;; auto-tag-test.el ends here
